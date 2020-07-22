@@ -19,6 +19,25 @@ NOTE: there are some methods used that are particular to our system
     
 MSSQL Server table creation SQL is at the bottom
 
+# USAGE
+```
+$fb = new PhpFormBuilderEx();
+$fb->set_att('id', 'frmMyForm');
+$fb->set_att('form_element', true);
+$fb->letData([an associative array of information to plug in to the form]);
+
+// you can add form controls manually
+$fb->add_input('', ['type'=>'hidden','value'=>$someValue1], 'someFieldname1');
+$fb->add_input('', ['type'=>'text','value'=>$someValue2], 'someFieldname2');
+
+// you can build the form from definitions stored in tables.
+$fb->getForm($idForm, $objDB);
+
+// false indicates to return the form as html for plugging into a template
+// true writes the form immediately
+$form = $fb->build_form(false);
+```
+
 # PHP Form Builder by JoshCanHelp
 
 This is a small PHP class that makes it easy to build and output forms as HTML or XHTML. Forms are tedious and can be difficult to build just right. Also, there are so many different option possible that it's easy to forget what you can do with them. 
