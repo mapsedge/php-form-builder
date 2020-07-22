@@ -17,7 +17,7 @@ Other changes as noted inline.
 
 NOTE: there are some methods used that are particular to our system related to database connectivity. You will undoubtedly need to change those. Look for '->exec'
     
-MSSQL Server table creation SQL is at the bottom of the class.
+MSSQL Server table creation SQL is in the file form-tables.sql.
 
 # USAGE
 ```
