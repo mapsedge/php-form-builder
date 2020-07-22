@@ -1,3 +1,24 @@
+# PHP Form Builder by JoshCanHelp - Extended by Bill R Morris, 2020-07
+
+The class as originally written was for one-direction, front-end forms, drawn and presented by the user for submitting information, like a "contact us" form.
+
+This iteration makes four major changes:
+
+1: the class can pull form information from tables (defined at the bottom)
+
+2: the form can how populate with data from the back end, so it can be used bi-directionally
+
+3: grouping is added. Controls are grouped inside fieldsets using vanilla javascript after the form is built. 
+
+4: a control type: flags is added. The class puts a div on the screen, then vanilla javascript converts it into checkboxes that feed a hidden control.
+
+Other changes as noted inline.
+
+NOTE: there are some methods used that are particular to our system
+		related to database connectivity. You will undoubtedly need to change those.
+    
+MSSQL Server table creation SQL is at the bottom
+
 # PHP Form Builder by JoshCanHelp
 
 This is a small PHP class that makes it easy to build and output forms as HTML or XHTML. Forms are tedious and can be difficult to build just right. Also, there are so many different option possible that it's easy to forget what you can do with them. 
