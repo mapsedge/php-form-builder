@@ -2,16 +2,105 @@
 
 // v 0.8.6
 
-class PhpFormBuilder {
+
+// Bill R Morris notes, 2020-07
+// The class as originally written was for one-direction, front-end forms,
+// drawn and presented by the user for submitting information.
+// This iteration makes four major changes:
+// 1: the class can pull form information from tables (defined below)
+// 2: the form can how populate with data from the back end,
+//    so it can be used bi-directionally
+// 3: grouping is added. Controls are grouped inside fieldsets
+//    using vanilla javascript after the form is built.
+// 4: a control type: flags is added. The class puts a div on the screen,
+//    then vanilla javascript converts it into checkboxes that feed
+//    a hidden control.
+// Other changes as noted inline.
+// NOTE: there are some methods used that are particular to our system
+// 		related to database connectivity. You will undoubtedly need to change those.
+// MSSQL Server table creation SQL is at the bottom
+
+class PhpFormBuilderEx { 
+
+	private $db = null;
 
 	// Stores all form inputs
-	private $inputs = array();
+	private $inputs = [];
 
 	// Stores all form attributes
-	private $form = array();
+	private $form = [];
 
 	// Does this form have a submit value?
 	private $has_submit = false;
+
+	/* BRM
+	the list of groups, fields, and attribtes from the formFields table.
+	Instead of building a form manually, pass in $idform and the 
+	form elements will be pulled and built automatically.
+	This is meant to compliment, not replace, manual field entry
+	*/ 
+	public $idform = 0;
+
+	/* BRM 
+	$data is an associative array.
+	To populate the form values if exists
+	the formFields table has a "mapsTo" field.
+	If $data['somekey'] == mapsTo, then the
+	field is populated with that value.
+	*/
+	private $data = [];
+
+	/* BRM
+	flags are rendered as a series of checkboxes, bitwise values, 
+	feeding additively into one hidden field
+	Example: 2: red; 4: green; 8: blue; 16: yellow; 32: orange 
+	... n * 2 up to the int limit
+	So, for flag value: 
+		6 = red and green; 
+		40 = blue and orange; 
+		20 = green and yellow; 
+		4 = green; 
+		2 = red;
+	*/
+	private $flags = [];
+
+	private $input_defaults = [
+		'add_label'		=> true,
+		'after_html'	=> '',
+		'autofocus'		=> false,
+		'before_html'	=> '',
+		'checked'		=> false,
+		'class'			=> array(),
+		'group'			=> '',
+		'id'			=> '',
+		'label'			=> '',
+		'max'			=> '',
+		'maxlength'		=> '',
+		'min'			=> '',
+		'name'			=> '',
+		'options'		=> array(),
+		'pattern'		=> '',
+		'request_populate' => true,
+		'placeholder'	=> '',
+		'required'		=> false,
+		'selected'		=> false,
+		'size'			=> '',
+		'step'			=> '',
+		'type'			=> 'text',
+		'validateas'	=> '',  // BRM: write your own js to use this(1)
+		'value'			=> '',
+		'wrap_class'	=> array( 'form_field_wrap' ),
+		'wrap_id'		=> '',
+		'wrap_style'	=> '',
+		'wrap_tag'		=> 'div'
+	];
+	/* 
+	(1) Example: assign each field a 'validateas' value, like 'areaphone'
+	or 'zipcode'. Before form submit, do a pre-flight validation: wrap up each
+	control value and 'validateas' value, send them to the server for validation.
+	(Of course, you have to write the javascript and the server-side 
+	validation routines.)
+	*/
 
 	/**
 	 * Constructor function to set form action and attributes
@@ -23,14 +112,14 @@ class PhpFormBuilder {
 
 		// Default form attributes
 		$defaults = array(
-			'action'       => $action,
-			'method'       => 'post',
-			'enctype'      => 'application/x-www-form-urlencoded',
-			'class'        => array(),
-			'id'           => '',
-			'markup'       => 'html',
+			'action'	   => $action,
+			'method'	   => 'post',
+			'enctype'	  => 'application/x-www-form-urlencoded',
+			'class'		=> array(),
+			'id'		   => $this->generateRandomString(20),
+			'markup'	   => 'html',
 			'novalidate'   => false,
-			'add_nonce'    => false,
+			'add_nonce'	=> false,
 			'add_honeypot' => true,
 			'form_element' => true,
 			'add_submit'   => true
@@ -57,7 +146,7 @@ class PhpFormBuilder {
 	/**
 	 * Validate and set form
 	 *
-	 * @param string        $key A valid key; switch statement ensures validity
+	 * @param string		$key A valid key; switch statement ensures validity
 	 * @param string | bool $val A valid value; validated for each key
 	 *
 	 * @return bool
@@ -138,39 +227,19 @@ class PhpFormBuilder {
 			$slug = $this->_make_slug( $label );
 		}
 
-		$defaults = array(
-			'type'             => 'text',
-			'name'             => $slug,
-			'id'               => $slug,
-			'label'            => $label,
-			'value'            => '',
-			'placeholder'      => '',
-			'class'            => array(),
-			'min'              => '',
-			'max'              => '',
-			'step'             => '',
-			'autofocus'        => false,
-			'checked'          => false,
-			'selected'         => false,
-			'required'         => false,
-			'add_label'        => true,
-			'options'          => array(),
-			'wrap_tag'         => 'div',
-			'wrap_class'       => array( 'form_field_wrap' ),
-			'wrap_id'          => '',
-			'wrap_style'       => '',
-			'before_html'      => '',
-			'after_html'       => '',
-			'request_populate' => true
-		);
+		$defaults = $this->input_defaults;
+		$defaults['name'] 	= $slug;
+		$defaults['id'] 	= $slug;
+		$defaults['label'] 	= $label;
 
 		// Combined defaults and arguments
 		// Arguments override defaults
-		$args                  = array_merge( $defaults, $args );
+		$args				   = array_merge( $defaults, $args );
 		$this->inputs[ $slug ] = $args;
 
 	}
 
+	//--------------------------------------------------------------------------------
 	/**
 	 * Add multiple inputs to the input queue
 	 *
@@ -194,6 +263,7 @@ class PhpFormBuilder {
 		return true;
 	}
 
+	//--------------------------------------------------------------------------------
 	/**
 	 * Build the HTML for the form based on the input queue
 	 *
@@ -202,6 +272,8 @@ class PhpFormBuilder {
 	 * @return string
 	 */
 	function build_form( $echo = true ) {
+
+		global $s;
 
 		$output = '';
 
@@ -234,13 +306,13 @@ class PhpFormBuilder {
 		// Add honeypot anti-spam field
 		if ( $this->form['add_honeypot'] ) {
 			$this->add_input( 'Leave blank to submit', array(
-				'name'             => 'honeypot',
-				'slug'             => 'honeypot',
-				'id'               => 'form_honeypot',
-				'wrap_tag'         => 'div',
-				'wrap_class'       => array( 'form_field_wrap', 'hidden' ),
-				'wrap_id'          => '',
-				'wrap_style'       => 'display: none',
+				'name'			 => 'honeypot',
+				'slug'			 => 'honeypot',
+				'id'			   => 'form_honeypot',
+				'wrap_tag'		 => 'div',
+				'wrap_class'	   => array( 'form_field_wrap', 'hidden' ),
+				'wrap_id'		  => '',
+				'wrap_style'	   => 'display: none',
 				'request_populate' => false
 			) );
 		}
@@ -248,16 +320,16 @@ class PhpFormBuilder {
 		// Add a WordPress nonce field
 		if ( $this->form['add_nonce'] && function_exists( 'wp_create_nonce' ) ) {
 			$this->add_input( 'WordPress nonce', array(
-				'value'            => wp_create_nonce( $this->form['add_nonce'] ),
-				'add_label'        => false,
-				'type'             => 'hidden',
+				'value'			=> wp_create_nonce( $this->form['add_nonce'] ),
+				'add_label'		=> false,
+				'type'			 => 'hidden',
 				'request_populate' => false
 			) );
 		}
 
 		// Iterate through the input queue and add input HTML
 		foreach ( $this->inputs as $val ) :
-
+			
 			$min_max_range = $element = $end = $attr = $field = $label_html = '';
 
 			// Automatic population of values using $_REQUEST data
@@ -282,23 +354,27 @@ class PhpFormBuilder {
 
 				case 'html':
 					$element = '';
-					$end     = $val['label'];
+					$end	 = $val['label'];
 					break;
 
 				case 'title':
 					$element = '';
-					$end     = '
+					$end	 = '
 					<h3>' . $val['label'] . '</h3>';
 					break;
 
 				case 'textarea':
 					$element = 'textarea';
-					$end     = '>' . $val['value'] . '</textarea>';
+					$end	 = '>' . $val['value'] . '</textarea>';
 					break;
 
+				case 'dropdown':
 				case 'select':
 					$element = 'select';
-					$end     .= '>';
+					$end	 .= '>';
+					if($val['value'] != '') {
+						$end = " selvalue='{$val['value']}'" . $end;
+					}
 					foreach ( $val['options'] as $key => $opt ) {
 						$opt_insert = '';
 						if (
@@ -310,11 +386,14 @@ class PhpFormBuilder {
 
 							// Are we currently outputting the selected value?
 							$_REQUEST[ $val['name'] ] === $key
-						) {
+						) 
+						{
 							$opt_insert = ' selected';
 
 						// Does the field have a default selected value?
-						} else if ( $val['selected'] === $key ) {
+						} 
+						else if ( $val['selected'] === $key ) 
+						{
 							$opt_insert = ' selected';
 						}
 						$end .= '<option value="' . $key . '"' . $opt_insert . '>' . $opt . '</option>';
@@ -322,12 +401,27 @@ class PhpFormBuilder {
 					$end .= '</select>';
 					break;
 
+				/* BRM 
+				flag type added. Actual checkboxes and handling are built by js, further down.
+				*/
+				case 'flags':
+					$element = 'div';
+					$end	 = '>' . $val['value'] . '</div>';
+					$flagObj = [];
+					$flagObj['id'] = $val['name'];
+					$flagObj['values'] = json_encode($val['options']);
+					$this->flags[] = $flagObj;
+					break;
+
+
 				case 'radio':
 				case 'checkbox':
 
 					// Special case for multiple check boxes
 					if ( count( $val['options'] ) > 0 ) :
 						$element = '';
+						
+						
 						foreach ( $val['options'] as $key => $opt ) {
 							$slug = $this->_make_slug( $opt );
 							$end .= sprintf(
@@ -355,11 +449,29 @@ class PhpFormBuilder {
 						$label_html = '<div class="checkbox_header">' . $val['label'] . '</div>';
 						break;
 					endif;
-
+				
 				// Used for all text fields (text, email, url, etc), single radios, single checkboxes, and submit
 				default :
 					$element = 'input';
 					$end .= ' type="' . $val['type'] . '" value="' . $val['value'] . '"';
+					/* BRM
+					See validateas notes, above: (1)
+					*/
+					if($val['validateas'] != ''){
+						$end .= ' validateas="' . $val['validateas'] . '"';
+					} 
+					if($val['pattern'] != ''){
+						$end .= ' pattern="' . $val['pattern'] . '"';
+					} 
+					if($val['size'] != ''){
+						$end .= ' size="' . $val['size'] . '"';
+					}
+					if($val['maxlength'] != ''){
+						$end .= ' maxlength="' . $val['maxlength'] . '"';
+					}
+					if($val['placeholder'] != ''){
+						$end .= ' placeholder="' . $val['placeholder'] . '"';
+					}
 					$end .= $val['checked'] ? ' checked' : '';
 					$end .= $this->field_close();
 					break;
@@ -404,7 +516,7 @@ class PhpFormBuilder {
 				if ( $val['type'] === 'checkbox' ) {
 					$field = '
 					<' . $element . $id . ' name="' . $val['name'] . '"' . $min_max_range . $class . $attr . $end .
-					         $field;
+							 $field;
 				} else {
 					$field .= '
 					<' . $element . $id . ' name="' . $val['name'] . '"' . $min_max_range . $class . $attr . $end;
@@ -423,6 +535,9 @@ class PhpFormBuilder {
 					$wrap_before .= count( $val['wrap_class'] ) > 0 ? $this->_output_classes( $val['wrap_class'] ) : '';
 					$wrap_before .= ! empty( $val['wrap_style'] ) ? ' style="' . $val['wrap_style'] . '"' : '';
 					$wrap_before .= ! empty( $val['wrap_id'] ) ? ' id="' . $val['wrap_id'] . '"' : '';
+					if ( $val['group'] != '' ){
+						$wrap_before .= ' group="' . $val['group'] . '"';
+					}
 					$wrap_before .= '>';
 				}
 
@@ -448,6 +563,9 @@ class PhpFormBuilder {
 			$output .= '</form>';
 		}
 
+		/* BRM */
+		$output .= $this->insertJavascript();
+
 		// Output or return?
 		if ( $echo ) {
 			echo $output;
@@ -456,11 +574,13 @@ class PhpFormBuilder {
 		}
 	}
 
+
 	// Easy way to auto-close fields, if necessary
 	function field_close() {
 		return $this->form['markup'] === 'xhtml' ? ' />' : '>';
 	}
 
+	//--------------------------------------------------------------------------------
 	// Validates id and class attributes
 	// TODO: actually validate these things
 	private function _check_valid_attr( $string ) {
@@ -474,6 +594,7 @@ class PhpFormBuilder {
 
 	}
 
+	//--------------------------------------------------------------------------------
 	// Create a slug from a label name
 	private function _make_slug( $string ) {
 
@@ -490,6 +611,7 @@ class PhpFormBuilder {
 
 	}
 
+	//--------------------------------------------------------------------------------
 	// Parses and builds the classes in multiple places
 	private function _output_classes( $classes ) {
 
@@ -508,4 +630,461 @@ class PhpFormBuilder {
 
 		return $output;
 	}
+
+	//--------------------------------------------------------------------------------
+	/* BRM
+	To avoid collisions, the javascript (below) is namespaced and given a long, random name
+	To avoid inadvertantly creating obvious profanity (stay focused, people!) 
+		vowels and the letter K	are omitted.
+	*/
+	function generateRandomString($length = 10) {
+		$characters = '0123456789bcdfghjlmnpqrstvwxyzBCDFGHJLMNPQRSTVWXYZ';
+		$charactersLength = strlen($characters);
+		$randomString = 'phpFB'; // always start the id with a letter
+		for ($i = 0; $i < $length; $i++) {
+			$randomString .= $characters[rand(0, $charactersLength - 1)];
+		}
+		return $randomString;
+	}
+
+	//--------------------------------------------------------------------------------
+	/* BRM
+	When building the form from the tables, a database object is passed in
+		and stored for possible use. We'll clean that up, here.
+	*/
+	function __destruct()
+	{
+		unset($this->db);
+	}
+
+	//--------------------------------------------------------------------------------
+	/*  BRM
+	PURPOSE: the javascript takes fields with the "group" attribute and wraps then
+		in a fieldset. The "group" attribute becomes the legend.
+	*/
+	function insertJavascript(){
+		if(count($this->flags) > 0) {
+			$objFlags = json_encode($this->flags);
+		} else {
+			$objFlags = "[]";
+		}
+		$f = $this->form[id];
+		$objectName = $this->generateRandomString(20);
+		$out = <<<EOT
+<script>
+var varFlagObjects = $objFlags;
+var $objectName = {
+	getForm: function() {
+		var e = document.getElementById("$f");
+		return void 0 !== e && null != e || (e = document.getElementsByTagName("form")[0]), void 0 !== e && null != e && e
+	},
+	getGroups: function() {
+		var e = document.querySelectorAll("[group]"),
+			t = "",
+			r = {};
+		return e.forEach(e => {
+			void 0 !== (t = e.getAttribute("group")) && (r[t] = "")
+		}), 0 != r.length && Object.keys(r).reverse()
+	},
+	buildGroupFieldsets: function() {
+		var e = $objectName.getForm();
+		e && $objectName.getGroups().forEach(t => {
+			let r = document.createElement("fieldset"),
+				o = document.createElement("legend");
+			o.innerHTML = t, r.appendChild(o);
+			let n = '.form_field_wrap[group="' + t + '"]';
+			document.querySelectorAll(n).forEach(e => {
+				r.append(e)
+			}), e.insertBefore(r, e.firstChild)
+		})
+	},
+	buildFlags: function(){
+		/* 
+		- Creates the flag checkboxes 
+			plus a hidden control to receive the values.
+		- Creates the click events
+		*/
+		varFlagObjects.forEach(t => {
+			// there's a div up there with the id t.id
+			// the text inside it is the current record's flag value
+			let C = document.getElementById(t.id);
+			let curFlag = parseInt(C.innerText);
+			let e = C.parentNode;
+			C.remove();
+			let D = JSON.parse(t.values);
+			let f = document.createElement("input");
+			f.type = 'hidden'; // make this 'text' if you want to see the thing in action
+			f.value = curFlag;
+			f.id = t.id;
+			f.name = t.id;
+			e.append(f);
+			D.forEach(a => {
+				let b = document.createElement("label");
+				b.innerHTML = a.caption;
+				let c = document.createElement("input");
+				c.type = 'checkbox';
+				c.value = a.value;
+				c.setAttribute('feeds', t.id);
+				c.checked = ( (a.value & curFlag) != 0 );
+				c.onclick = function(){
+					let newflag = 0;
+					let g = document.querySelectorAll('[feeds="' + t.id + '"]');
+					g.forEach(h => {
+						if(h.checked) {
+							newflag += (h.value * 1);
+						}
+					});
+					f.value = newflag;
+				};
+				e.append(b);
+				e.append(c);
+			});
+			
+		});
+	}
+};
+$objectName.buildGroupFieldsets();
+$objectName.buildFlags();
+</script>
+EOT;
+
+		return $out;
+	}
+
+	//--------------------------------------------------------------------------------
+	/* BRM
+	This routine builds the form based upon groups and fields stored in a database.
+	*/
+	function getForm($idform, $db) {
+		$db->execute("use applications"); // change this to match your own schema
+		$rs = $db->execute("select * from vwFormBuilder where idform = $idform order by orderby", 1);
+		
+		// store for later use
+		$this->db = $db;
+
+		$this->set_att('action', $rs[0]['formAction']);
+
+		$method = $rs[0]['formMethod'];
+		$this->set_att('method', $method);
+
+		$this->set_att('enctype', 'multipart/form-data');
+		$this->set_att('markup', 'html');
+
+		$autofocus = true;
+
+		foreach($rs as $item)
+		{
+			ksort($item);
+			$item = array_change_key_case($item);
+			$item['pattern'] = ''; // TODO add pattern to the form properties
+			$caption = $item['caption'];
+			$attr = [];
+			
+			$attr['group'] = $item['groupname'];
+			$attr['value'] = $this->getDataValue(strtolower($item['mapsto']));
+			if(preg_match('/(dropdown|select)/', $item['controlType'])!==false)
+			{
+				$attr['selected'] = $attr['value'];
+			}
+			$this->addAttributeIfExists($attr, 'size'		, $item['isize']);
+			$this->addAttributeIfExists($attr, 'maxlength'	, $item['imaxlength']);
+			$this->addAttributeIfExists($attr, 'placeholder', $item['placeholder']);
+			$this->addAttributeIfExists($attr, 'type'		, $item['controltype']);
+			$this->addAttributeIfExists($attr, 'required'	, ($item['brequired'] == '1'));
+			$this->addAttributeIfExists($attr, 'validateas'	, $item['validateas']);
+			$this->addAttributeIfExists($attr, 'pattern'	, $item['pattern']);
+			if ( stripos(',select,dropdown,flags,', $item['controltype']) !== false ) {
+				if($item['valueslistsql'] != '') {
+					$this->addAttributeIfExists($attr, 'options'	, $this->getOptionsList($item['valueslistsql']));
+				}
+				// TODO add options from explicit json list.
+			}
+			
+			if ($autofocus)
+			{
+				// give autofocus to the first element in the form.
+				$this->addAttributeIfExists($attr, 'autofocus', true);
+				$autofocus = !$autofocus;
+
+			}
+			$this->add_input($item['caption'], $attr, $item['fieldname']);
+		}
+
+	}
+
+	//--------------------------------------------------------------------------------
+	/* BRM 
+	this keeps us from adding attributes we don't need 
+		without any fancy checks in the loop above
+		and prevents adding a value more than once
+	*/
+	private function addAttributeIfExists(&$attr, $attrkey, $itemvalue) {
+		if($itemvalue != '' && ! array_key_exists($attrkey, $attr)){
+			$attr[$attrkey] = $itemvalue;
+		}
+	}
+
+	//--------------------------------------------------------------------------------
+	/* BRM
+	When the form is populated with data, all array keys are lowercased 
+	(so are the "mapto" values) so we don't have to think about it.
+	*/
+	function letData($s){
+		$s = array_change_key_case($s);
+		$this->data = $s;
+	}
+
+	//--------------------------------------------------------------------------------
+	private function getDataValue($s){
+		if(count($this->data) > 0 && $s != '') {
+			if(array_key_exists($s, $this->data)){
+				return $this->data[$s];
+			}
+		}
+		return '';
+	}
+
+	//--------------------------------------------------------------------------------
+	/* BRM
+	Gets dropdown options and flags values. In my case, I needed to pull options
+	from a different schema than the form, so to do that I pass in both queries
+	separated by a semi-colon:
+
+	use different_schema;
+	select stuff from table
+
+	The function splits on the semi-colon, executes for a recordset each time
+	and returns the first one it finds.
+	
+	*/
+	private function getOptionsList($sql){
+		if($sql == '') return;
+		$arr = explode(";", $sql);
+		foreach($arr as $s) {
+			$rs = $this->db->execute($s, 1);
+			// first recordset to return a value wins.
+			if(count($rs) > 0) {
+				return $rs;
+			}
+		}
+	}
 }
+
+/*
+
+****** Object:  Table [dbo].[formHead]    Script Date: 7/22/2020 10:02:47 AM ******
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[formHead](
+	[idIdentity] [int] IDENTITY(1,1) NOT NULL,
+	[idForm] [int] NULL,
+	[formName] [varchar](500) NULL,
+	[formAction] [varchar](1000) NULL,
+	[companyId] [int] NULL,
+	[formMethod] [varchar](4) NULL,
+	[datasetSQL] [varchar](7999) NULL,
+	[addUser] [int] NULL,
+	[addDate] [datetime] NULL,
+	[updateUser] [int] NULL,
+	[updateDate] [datetime] NULL,
+	[flags] [int] NULL,
+	[post_submit_callback] [varchar](7999) NULL,
+	[post_thankyou_source] [varchar](7999) NULL,
+	[emailSubject] [varchar](1000) NULL,
+	[idClickThru] [int] NULL,
+	[insertUser] [int] NULL,
+	[insertDate] [datetime] NULL,
+	[tablename] [varchar](200) NULL,
+	[replaceBuiltinCallback] [bit] NULL,
+	[formDirection] [varchar](100) NULL
+) ON [PRIMARY]
+GO
+
+ALTER TABLE [dbo].[formHead] ADD  DEFAULT ((0)) FOR [flags]
+GO
+
+ALTER TABLE [dbo].[formHead] ADD  DEFAULT ((6651)) FOR [insertUser]
+GO
+
+ALTER TABLE [dbo].[formHead] ADD  DEFAULT (getdate()) FOR [insertDate]
+GO
+
+ALTER TABLE [dbo].[formHead] ADD  DEFAULT ('') FOR [tablename]
+GO
+
+ALTER TABLE [dbo].[formHead] ADD  DEFAULT ((0)) FOR [replaceBuiltinCallback]
+GO
+
+ALTER TABLE [dbo].[formHead] ADD  DEFAULT ('') FOR [formDirection]
+GO
+
+
+USE [Applications]
+GO
+
+****** Object:  Table [dbo].[formFieldGroups]    Script Date: 7/22/2020 10:03:16 AM ******
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[formFieldGroups](
+	[idIdentity] [int] IDENTITY(1,1) NOT NULL,
+	[idGroup] [int] NULL,
+	[groupName] [varchar](1000) NULL,
+	[addDate] [datetime] NULL,
+	[addUser] [int] NULL,
+	[updateDate] [datetime] NULL,
+	[updateUser] [int] NULL,
+	[idForm] [int] NULL,
+	[displayOrder] [int] NULL,
+	[activeDate] [datetime] NULL,
+	[idParentGroup] [int] NULL,
+	[flags] [int] NULL,
+UNIQUE NONCLUSTERED 
+(
+	[idGroup] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+
+ALTER TABLE [dbo].[formFieldGroups] ADD  DEFAULT (getdate()) FOR [addDate]
+GO
+
+ALTER TABLE [dbo].[formFieldGroups] ADD  DEFAULT ((136)) FOR [addUser]
+GO
+
+ALTER TABLE [dbo].[formFieldGroups] ADD  DEFAULT ((0)) FOR [displayOrder]
+GO
+
+ALTER TABLE [dbo].[formFieldGroups] ADD  DEFAULT (getdate()) FOR [activeDate]
+GO
+
+ALTER TABLE [dbo].[formFieldGroups] ADD  DEFAULT ((0)) FOR [idParentGroup]
+GO
+
+ALTER TABLE [dbo].[formFieldGroups] ADD  DEFAULT ((0)) FOR [flags]
+GO
+
+
+USE [Applications]
+GO
+
+****** Object:  Table [dbo].[formFields]    Script Date: 7/22/2020 10:03:31 AM ******
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[formFields](
+	[idFormField] [int] IDENTITY(1,1) NOT NULL,
+	[idForm] [int] NULL,
+	[caption] [varchar](100) NULL,
+	[fieldName] [varchar](100) NULL,
+	[iSize] [int] NULL,
+	[iMaxlength] [int] NULL,
+	[widthPerc] [int] NULL,
+	[widthPx] [int] NULL,
+	[bRequired] [tinyint] NULL,
+	[validateAs] [varchar](10) NULL,
+	[mapsTo] [varchar](100) NULL,
+	[addUser] [int] NULL,
+	[addDate] [datetime] NULL,
+	[updateUser] [int] NULL,
+	[updateDate] [datetime] NULL,
+	[placeholder] [varchar](100) NULL,
+	[intMinValue] [int] NULL,
+	[intMaxValue] [int] NULL,
+	[dateMinValue] [datetime] NULL,
+	[dateMaxValue] [datetime] NULL,
+	[idGroup] [int] NULL,
+	[orderBy] [int] NULL,
+	[controlType] [varchar](20) NULL,
+	[controlSQL] [varchar](7999) NULL,
+	[valuesList] [varchar](7999) NULL,
+	[valuesListSQL] [varchar](7999) NULL,
+	[textareaCols] [int] NULL,
+	[textareaRows] [int] NULL,
+	[ajaxLink] [varchar](7999) NULL,
+	[onChange] [varchar](7999) NULL,
+	[onClick] [varchar](7999) NULL,
+	[onFocus] [varchar](7999) NULL,
+	[onBlur] [varchar](7999) NULL,
+	[defaultValue] [varchar](500) NULL,
+	[confidential] [tinyint] NULL,
+	[contentURL] [varchar](200) NULL,
+	[contentLong] [varchar](7000) NULL,
+	[DateStrMinValue] [varchar](50) NULL,
+	[DateStrMaxValue] [varchar](50) NULL,
+	[def] [varchar](50) NULL,
+	[activeDate] [datetime] NULL,
+	[deleted] [bit] NULL,
+	[displayorder] [int] NULL,
+	[flagTableName] [varchar](100) NULL
+) ON [PRIMARY]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  CONSTRAINT [DF_formFields_addUser]  DEFAULT ((136)) FOR [addUser]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  CONSTRAINT [DF_formFields_addDate]  DEFAULT (getdate()) FOR [addDate]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ((9999)) FOR [orderBy]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ((40)) FOR [textareaCols]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ((4)) FOR [textareaRows]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ((0)) FOR [confidential]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ('') FOR [def]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT (getdate()) FOR [activeDate]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ((0)) FOR [deleted]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ((999)) FOR [displayorder]
+GO
+
+ALTER TABLE [dbo].[formFields] ADD  DEFAULT ('') FOR [flagTableName]
+GO
+
+USE [Applications]
+GO
+
+****** Object:  View [dbo].[vwFormBuilder]    Script Date: 7/22/2020 10:08:01 AM ******
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE VIEW [dbo].[vwFormBuilder]
+AS
+SELECT        h.formName, h.formAction, h.companyId, h.formMethod, h.datasetSQL, COALESCE (f.caption, f.fieldName) AS caption, f.fieldName, f.iSize, f.iMaxlength, f.widthPerc, f.widthPx, f.bRequired, 
+                         f.validateAs, f.mapsTo, f.placeholder, f.intMinValue, f.intMaxValue, f.dateMinValue, f.dateMaxValue, COALESCE (f.orderBy, 9999) AS orderBy, g.groupName, COALESCE (f.controlType, 'textbox') AS controlType, 
+                         f.controlSQL, f.valuesList, f.valuesListSQL, h.idForm, f.textareaCols, f.textareaRows, f.ajaxLink, f.onChange, f.onClick, f.onBlur, f.onFocus, g.idGroup, f.idFormField, f.defaultValue, h.post_submit_callback, 
+                         h.post_thankyou_source, h.emailSubject, h.idClickThru, COALESCE (f.confidential, 0) AS confidential, COALESCE (g.displayOrder, 0) AS groupDisplayOrder, COALESCE (f.orderBy, 0) AS fieldOrderBy, f.contentURL, 
+                         f.contentLong, f.DateStrMinValue, f.DateStrMaxValue, f.def, g.idParentGroup, COALESCE (f.deleted, 0) AS deleted, COALESCE (f.displayorder, 999) AS displayorder, h.tablename, 
+                         COALESCE (h.replaceBuiltinCallback, 0) AS replaceBuiltinCallback, COALESCE (NULLIF (h.formDirection, ''), 'customer') AS formDirection, f.flagTableName
+FROM            dbo.formFieldGroups AS g RIGHT OUTER JOIN
+                         dbo.formHead AS h ON g.idForm = h.idForm LEFT OUTER JOIN
+                         dbo.formFields AS f ON g.idGroup = f.idGroup
+WHERE        (COALESCE (f.deleted, 0) = 0)
+GO
+
+*/
