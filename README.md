@@ -27,8 +27,8 @@ $fb->set_att('form_element', true);
 $fb->letData([an associative array of information to plug in to the form]);
 
 // you can add form controls manually
-$fb->add_input('', ['type'=>'hidden','value'=>$someValue1], 'someFieldname1');
-$fb->add_input('', ['type'=>'text','value'=>$someValue2], 'someFieldname2');
+$fb->add_input('Some Field 1', ['type'=>'hidden','value'=>$someValue1], 'someFieldname1');
+$fb->add_input('Some Field 2', ['type'=>'text','value'=>$someValue2], 'someFieldname2');
 
 // you can build the form from definitions stored in tables.
 $fb->getForm($idForm, $objDB);
