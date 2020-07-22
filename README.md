@@ -257,7 +257,7 @@ $new_form->build_form();
 There are a few things that I'd like to correct here and a few features to add. In order of priority:
 
 * Validation for adding classes and ids
-* Add fieldsets and legends
+* Add fieldsets and legends << Done using javascript - BRM
 * Function to change the default field settings
 * Add ability to set selected and checked for select and multiple checkboxes
 * More strict name generation
