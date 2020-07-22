@@ -19,7 +19,7 @@
 // 		related to database connectivity. You will undoubtedly need to change those.
 // MSSQL Server table creation SQL is in form-tables.sql
 
-class PhpFormBuilderEx { 
+class PhpFormBuilder { 
 
 	private $db = null;
 
