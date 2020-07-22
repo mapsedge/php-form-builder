@@ -4,20 +4,19 @@ The class as originally written was for one-direction, front-end forms, drawn an
 
 This iteration makes four major changes:
 
-1: the class can pull form information from tables (defined at the bottom)
+1: the class can pull form information from tables (defined at the bottom). In my case, this allowed me to create an interface for form building that less technical people could use, instead of having them rummaging around in the code or (worse) making me do it.
 
-2: the form can how populate with data from the back end, so it can be used bi-directionally
+2: the form can populate with data from the back end, so it can be used bi-directionally, like an 'edit employee' form.
 
 3: grouping is added. Controls are grouped inside fieldsets using vanilla javascript after the form is built. 
 
-4: a control type: flags is added. The class puts a div on the screen, then vanilla javascript converts it into checkboxes that feed a hidden control.
+4: a control type: 'flags' is added. The class puts a div on the screen, then vanilla javascript converts it into checkboxes that feed a hidden control. This is explained in more detail in the class.
 
 Other changes as noted inline.
 
-NOTE: there are some methods used that are particular to our system
-		related to database connectivity. You will undoubtedly need to change those.
+NOTE: there are some methods used that are particular to our system related to database connectivity. You will undoubtedly need to change those.
     
-MSSQL Server table creation SQL is at the bottom
+MSSQL Server table creation SQL is at the bottom of the class.
 
 # USAGE
 ```
