@@ -1,4 +1,5 @@
-# PHP Form Builder by JoshCanHelp - Extended by Bill R Morris, 2020-07
+# PHP Form Builder by JoshCanHelp
+# - Extended by Bill R Morris, 2020-07
 
 The class as originally written was for one-direction, front-end forms, drawn and presented by the user for submitting information, like a "contact us" form.
 
